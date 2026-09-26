@@ -5,4 +5,8 @@ fastapi>=0.110.0
 uvicorn>=0.28.0
 sqlalchemy>=2.0.0
 pytest>=8.0.0
+<<<<<<< HEAD
+=======
+numpy>=2.0.0
+>>>>>>> 2c902f96110e6f1f23973339b34f74bce834be2c
 

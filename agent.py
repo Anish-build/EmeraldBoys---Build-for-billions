@@ -1,11 +1,19 @@
 import os
 import json
 import logging
+<<<<<<< HEAD
 from typing import Dict, List, Any
 from openai import OpenAI
 from dotenv import load_dotenv
 
 from schemas import MLPayload, LLMDecision, FinalAgentResponse
+=======
+from typing import Dict, List, Any, Optional
+from openai import OpenAI
+from dotenv import load_dotenv
+
+from schemas import MLPayload, LLMDecision, FinalAgentResponse, DiagnosticReport
+>>>>>>> 2c902f96110e6f1f23973339b34f74bce834be2c
 from tools import execute_tool_safely, PUMP_CONTEXT_TOOL, PUMP_HISTORY_TOOL
 
 
@@ -65,10 +73,23 @@ def evaluate_case(payload: MLPayload) -> FinalAgentResponse:
 Your role is to interpret ML anomaly reports for rural handpumps and recommend the next workflow action.
 
 WORKFLOW:
+<<<<<<< HEAD
 1. Review the ML payload (Prediction: {payload.ml_prediction}, Confidence Flag: {conf_flag}).
 2. MUST call get_pump_context with pump_id='{payload.pump_id}' to fetch pump specs/hardware context.
    You may also call get_pump_history with pump_id='{payload.pump_id}' to retrieve historical cases, state transitions, and previous anomalies.
 3. Combine ML payload and retrieved context to propose the next logical maintenance state.
+=======
+1. Review the ML payload (Prediction: {payload.ml_prediction}, Confidence Flag: {conf_flag}, Score: {payload.ml_confidence:.2f}).
+2. MUST call get_pump_context with pump_id='{payload.pump_id}' to fetch pump specs/hardware context.
+   You may also call get_pump_history with pump_id='{payload.pump_id}' to retrieve historical cases, state transitions, and previous anomalies.
+3. Combine ML payload and retrieved context to propose the next logical maintenance state.
+4. Provide structured diagnostic reasoning:
+   - observation: What ML telemetry and context evidence was provided.
+   - interpretation: The likely mechanical failure mode (e.g. seal degradation, valve leak, normal rhythm).
+   - recommendation: Practical maintenance inspection tasks.
+   - confidence_assessment: Faithful interpretation of the upstream confidence without modifying the score.
+   - next_action: State-machine-safe proposed action.
+>>>>>>> 2c902f96110e6f1f23973339b34f74bce834be2c
 
 RULES:
 - Never invent missing pump context or ML attributes.
@@ -83,6 +104,10 @@ RULES:
     ]
 
     context_retrieved = False
+<<<<<<< HEAD
+=======
+    diagnostic_report: Optional[DiagnosticReport] = None
+>>>>>>> 2c902f96110e6f1f23973339b34f74bce834be2c
     
     try:
         # First turn: Send request and allow tool calling
@@ -129,9 +154,23 @@ RULES:
         )
         
         llm_decision: LLMDecision = final_completion.choices[0].message.parsed
+<<<<<<< HEAD
 
     except Exception as e:
         logger.error(f"API/Execution Error during evaluation: {str(e)}")
+=======
+        diagnostic_report = llm_decision.diagnostic_report
+
+    except Exception as e:
+        logger.error(f"API/Execution Error during evaluation: {str(e)}")
+        fallback_report = DiagnosticReport(
+            observation=f"Evaluation failed due to runtime error: {str(e)}",
+            interpretation="System error prevented complete automated acoustic reasoning.",
+            recommendation="Escalate for technician physical inspection and investigate agent runtime.",
+            confidence_assessment=f"Upstream ML Confidence was {payload.ml_confidence:.2f} ({conf_flag}), but agent execution failed.",
+            next_action="ESCALATE"
+        )
+>>>>>>> 2c902f96110e6f1f23973339b34f74bce834be2c
         return FinalAgentResponse(
             case_id=payload.case_id,
             pump_id=payload.pump_id,
@@ -143,7 +182,12 @@ RULES:
             confidence_flag=conf_flag,
             needs_human_review=True,
             explanation="System error encountered during agent decision evaluation.",
+<<<<<<< HEAD
             audit_notes=f"System Error: {str(e)}"
+=======
+            audit_notes=f"System Error: {str(e)}",
+            diagnostic_report=fallback_report
+>>>>>>> 2c902f96110e6f1f23973339b34f74bce834be2c
         )
 
     # 3. Deterministic Validation & Semantic Safety Logic
@@ -172,6 +216,22 @@ RULES:
 
     logger.info(f"Final Decision: Action={action}, Proposed State={proposed_state}, Human Review={needs_human_review}")
 
+<<<<<<< HEAD
+=======
+    # Ensure structured diagnostic report exists and is consistent with final validated action
+    if diagnostic_report is None:
+        diagnostic_report = DiagnosticReport(
+            observation=f"ML Prediction: {payload.ml_prediction} ({payload.ml_confidence:.2f}). State: {payload.current_state}.",
+            interpretation=explanation or "Anomaly evaluation synthesized from ML telemetry.",
+            recommendation="Inspect physical handpump mechanism according to maintenance protocol.",
+            confidence_assessment=f"Categorized as {conf_flag} confidence based on deterministic thresholding.",
+            next_action=action
+        )
+    elif not is_valid_transition:
+        # Reflect backend override in diagnostic report next action
+        diagnostic_report.next_action = "ESCALATE (Backend Deterministic Override)"
+
+>>>>>>> 2c902f96110e6f1f23973339b34f74bce834be2c
     # 4. Construct Final Response using TRUSTED UPSTREAM PAYLOAD
     return FinalAgentResponse(
         case_id=payload.case_id,
@@ -184,5 +244,10 @@ RULES:
         confidence_flag=conf_flag,
         needs_human_review=needs_human_review,
         explanation=explanation,
+<<<<<<< HEAD
         audit_notes=audit_notes
+=======
+        audit_notes=audit_notes,
+        diagnostic_report=diagnostic_report
+>>>>>>> 2c902f96110e6f1f23973339b34f74bce834be2c
     )
