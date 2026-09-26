@@ -1,0 +1,278 @@
+{
+  "pumps": [
+    {
+      "pump_id": "P201",
+      "location": "Surathkal Mangalore",
+      "pump_type": "Fuel Dispenser",
+      "operator": "Coastal Fuel Services",
+      "status": "Active",
+      "created_at": "2026-09-20T09:00:00",
+      "updated_at": "2026-09-20T09:00:00"
+    },
+    {
+      "pump_id": "P202",
+      "location": "Kottara Mangalore",
+      "pump_type": "Fuel Dispenser",
+      "operator": "Mangalore Fuel Point",
+      "status": "Active",
+      "created_at": "2026-09-20T09:05:00",
+      "updated_at": "2026-09-20T09:05:00"
+    },
+    {
+      "pump_id": "P203",
+      "location": "Udupi Highway",
+      "pump_type": "Fuel Dispenser",
+      "operator": "Highway Fuel Station",
+      "status": "Active",
+      "created_at": "2026-09-20T09:10:00",
+      "updated_at": "2026-09-20T09:10:00"
+    },
+    {
+      "pump_id": "P204",
+      "location": "Bajpe Mangalore",
+      "pump_type": "Fuel Dispenser",
+      "operator": "Bajpe Energy Station",
+      "status": "Active",
+      "created_at": "2026-09-20T09:15:00",
+      "updated_at": "2026-09-20T09:15:00"
+    }
+  ],
+  "mechanics": [
+    {
+      "mechanic_id": "M201",
+      "name": "Arjun Kumar",
+      "skill": "Pump Maintenance",
+      "service_area": "Mangalore",
+      "available": 1,
+      "workload": 2
+    },
+    {
+      "mechanic_id": "M202",
+      "name": "Rahul Shetty",
+      "skill": "Electrical Systems",
+      "service_area": "Mangalore",
+      "available": 1,
+      "workload": 1
+    },
+    {
+      "mechanic_id": "M203",
+      "name": "Vikram Rao",
+      "skill": "Mechanical Systems",
+      "service_area": "Udupi",
+      "available": 1,
+      "workload": 3
+    },
+    {
+      "mechanic_id": "M204",
+      "name": "Kiran Naik",
+      "skill": "Pump Maintenance",
+      "service_area": "Mangalore",
+      "available": 1,
+      "workload": 1
+    }
+  ],
+  "inspections": [
+    {
+      "inspection_id": "I201",
+      "pump_id": "P201",
+      "audio_file": "audio/p201_inspection.wav",
+      "timestamp": "2026-09-21T10:00:00"
+    },
+    {
+      "inspection_id": "I202",
+      "pump_id": "P202",
+      "audio_file": "audio/p202_inspection.wav",
+      "timestamp": "2026-09-21T10:30:00"
+    },
+    {
+      "inspection_id": "I203",
+      "pump_id": "P203",
+      "audio_file": "audio/p203_inspection.wav",
+      "timestamp": "2026-09-22T11:00:00"
+    },
+    {
+      "inspection_id": "I204",
+      "pump_id": "P204",
+      "audio_file": "audio/p204_inspection.wav",
+      "timestamp": "2026-09-22T11:30:00"
+    }
+  ],
+  "diagnoses": [
+    {
+      "diagnosis_id": "D201",
+      "inspection_id": "I201",
+      "prediction": "Abnormal",
+      "confidence": 0.94,
+      "severity": "High",
+      "created_at": "2026-09-21T10:05:00"
+    },
+    {
+      "diagnosis_id": "D202",
+      "inspection_id": "I202",
+      "prediction": "Normal",
+      "confidence": 0.97,
+      "severity": "Low",
+      "created_at": "2026-09-21T10:35:00"
+    },
+    {
+      "diagnosis_id": "D203",
+      "inspection_id": "I203",
+      "prediction": "Abnormal",
+      "confidence": 0.89,
+      "severity": "Medium",
+      "created_at": "2026-09-22T11:05:00"
+    },
+    {
+      "diagnosis_id": "D204",
+      "inspection_id": "I204",
+      "prediction": "Abnormal",
+      "confidence": 0.92,
+      "severity": "High",
+      "created_at": "2026-09-22T11:35:00"
+    }
+  ],
+  "repairs": [
+    {
+      "repair_id": "R201",
+      "pump_id": "P201",
+      "inspection_id": "I201",
+      "mechanic_id": "M201",
+      "recommended_action": "Inspect and replace pressure control component",
+      "priority": "High",
+      "status": "Completed",
+      "created_at": "2026-09-21T10:15:00",
+      "completed_at": "2026-09-21T15:30:00"
+    },
+    {
+      "repair_id": "R202",
+      "pump_id": "P202",
+      "inspection_id": "I202",
+      "mechanic_id": "M202",
+      "recommended_action": "Perform routine electrical inspection",
+      "priority": "Low",
+      "status": "Completed",
+      "created_at": "2026-09-21T10:45:00",
+      "completed_at": "2026-09-21T13:00:00"
+    },
+    {
+      "repair_id": "R203",
+      "pump_id": "P203",
+      "inspection_id": "I203",
+      "mechanic_id": "M203",
+      "recommended_action": "Inspect pump motor and vibration source",
+      "priority": "Medium",
+      "status": "In Progress",
+      "created_at": "2026-09-22T11:15:00",
+      "completed_at": null
+    },
+    {
+      "repair_id": "R204",
+      "pump_id": "P204",
+      "inspection_id": "I204",
+      "mechanic_id": "M204",
+      "recommended_action": "Replace faulty motor component",
+      "priority": "High",
+      "status": "Completed",
+      "created_at": "2026-09-22T11:45:00",
+      "completed_at": "2026-09-23T16:00:00"
+    }
+  ],
+  "verifications": [
+    {
+      "verification_id": "V201",
+      "repair_id": "R201",
+      "before_prediction": "Abnormal",
+      "after_prediction": "Normal",
+      "before_confidence": 0.94,
+      "after_confidence": 0.98,
+      "result": "Verified",
+      "verified_at": "2026-09-21T16:00:00"
+    },
+    {
+      "verification_id": "V202",
+      "repair_id": "R202",
+      "before_prediction": "Normal",
+      "after_prediction": "Normal",
+      "before_confidence": 0.97,
+      "after_confidence": 0.98,
+      "result": "Verified",
+      "verified_at": "2026-09-21T13:30:00"
+    },
+    {
+      "verification_id": "V203",
+      "repair_id": "R203",
+      "before_prediction": "Abnormal",
+      "after_prediction": "Abnormal",
+      "before_confidence": 0.89,
+      "after_confidence": 0.91,
+      "result": "Pending",
+      "verified_at": "2026-09-23T10:00:00"
+    },
+    {
+      "verification_id": "V204",
+      "repair_id": "R204",
+      "before_prediction": "Abnormal",
+      "after_prediction": "Normal",
+      "before_confidence": 0.92,
+      "after_confidence": 0.97,
+      "result": "Verified",
+      "verified_at": "2026-09-23T16:30:00"
+    }
+  ],
+  "audit_log": [
+    {
+      "log_id": "L201",
+      "pump_id": "P201",
+      "inspection_id": "I201",
+      "event_type": "INSPECTION",
+      "action": "Inspection completed",
+      "reason": "Scheduled maintenance inspection",
+      "timestamp": "2026-09-21T10:00:00"
+    },
+    {
+      "log_id": "L202",
+      "pump_id": "P201",
+      "inspection_id": "I201",
+      "event_type": "DIAGNOSIS",
+      "action": "Abnormal diagnosis generated",
+      "reason": "High-confidence abnormal pump sound detected",
+      "timestamp": "2026-09-21T10:05:00"
+    },
+    {
+      "log_id": "L203",
+      "pump_id": "P201",
+      "inspection_id": "I201",
+      "event_type": "REPAIR",
+      "action": "Repair completed",
+      "reason": "Pressure control component replaced",
+      "timestamp": "2026-09-21T15:30:00"
+    },
+    {
+      "log_id": "L204",
+      "pump_id": "P202",
+      "inspection_id": "I202",
+      "event_type": "INSPECTION",
+      "action": "Inspection completed",
+      "reason": "Routine inspection",
+      "timestamp": "2026-09-21T10:30:00"
+    },
+    {
+      "log_id": "L205",
+      "pump_id": "P203",
+      "inspection_id": "I203",
+      "event_type": "DIAGNOSIS",
+      "action": "Abnormal diagnosis generated",
+      "reason": "Unusual vibration pattern detected",
+      "timestamp": "2026-09-22T11:05:00"
+    },
+    {
+      "log_id": "L206",
+      "pump_id": "P204",
+      "inspection_id": "I204",
+      "event_type": "REPAIR",
+      "action": "Repair completed",
+      "reason": "Faulty motor component replaced",
+      "timestamp": "2026-09-23T16:00:00"
+    }
+  ]
+}

@@ -1,0 +1,3 @@
+log_id,pump_id,inspection_id,event_type,action,reason,timestamp
+L101,P101,I101,REPAIR_VERIFIED,Repair verified successfully,Post-repair audio classified as Normal,2026-09-26T10:31:00
+L102,P102,I102,DIAGNOSIS_CREATED,Diagnosis recorded,Pump classified as Normal,2026-09-26T10:15:30
