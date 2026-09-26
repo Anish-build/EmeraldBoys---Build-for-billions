@@ -37,15 +37,19 @@ app = FastAPI(
 cors_origins_env = os.getenv("CORS_ORIGINS")
 if cors_origins_env and cors_origins_env.strip():
     origins = [origin.strip() for origin in cors_origins_env.split(",") if origin.strip()]
-    if origins:
-        app.add_middleware(
-            CORSMiddleware,
-            allow_origins=origins,
-            allow_credentials=True,
-            allow_methods=["GET", "POST"],
-            allow_headers=["*"],
-        )
-
+else:
+    origins = []
+# Ensure Streamlit frontend can access
+if "http://localhost:8501" not in origins:
+    origins.append("http://localhost:8501")
+if origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=origins,
+        allow_credentials=True,
+        allow_methods=["GET", "POST"],
+        allow_headers=["*"],
+    )
 @app.get(
     "/",
     summary="Root Service Status",
