@@ -1,0 +1,7 @@
+# Jal-Setu ML Module Requirements
+# Only classical ML dependencies; no raw audio or deep learning frameworks.
+numpy>=1.26.0
+pandas>=2.0.0
+scikit-learn>=1.4.0
+joblib>=1.3.0
+scipy>=1.12.0
