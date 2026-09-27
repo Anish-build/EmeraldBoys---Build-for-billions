@@ -1,0 +1,40 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "FastAPI Backend",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "uvicorn",
+      "args": ["api:app", "--reload", "--port", "8000", "--host", "127.0.0.1"],
+      "jinja": true,
+      "justMyCode": true,
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Streamlit Frontend",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "streamlit",
+      "args": ["run", "app.py", "--server.port", "8501", "--server.headless", "false"],
+      "justMyCode": true,
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Run All Tests (Pytest)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "pytest",
+      "args": ["-v"],
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Run Sequential Workflow Test",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "pytest",
+      "args": ["-v", "test_sequential_workflow.py"],
+      "console": "integratedTerminal"
+    }
+  ]
+}

@@ -389,6 +389,7 @@ class TestEmeraldV3(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertEqual(data["proposed_state"], "ESCALATED")
+        self.assertEqual(data["final_state"], "ESCALATED")
 
         # Verify escalation event was generated and stored
         pump_events = get_events_for_pump(pump_id)

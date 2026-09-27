@@ -1,272 +1,279 @@
-# Emerald Boys — Rural Handpump AI Diagnostic & Maintenance Agent
+# Emerald Boys — Rural Handpump AI Diagnostic & Maintenance System
 
-A robust, local, neuro-symbolic diagnostic engine and FastAPI service designed to evaluate rural handpump acoustic anomaly reports, maintain persistent operational history in SQLite, and guide technicians through deterministic lifecycle states.
+A production-grade, local, neuro-symbolic diagnostic engine, FastAPI backend, and Streamlit frontend designed to evaluate rural handpump acoustic anomaly reports, maintain persistent operational history in SQLite, and guide technicians through deterministic lifecycle states with full safety verification.
 
 ---
 
-## 1. Project Purpose & Overview
+## 1. System Architecture & Sequential Lifecycle
 
-In rural communities across the developing world, handpumps represent the primary source of clean drinking water. When a pump fails, communities face prolonged water crises. Traditional maintenance is reactive, relying on manual complaints days after a breakdown.
+In rural communities across the developing world, handpumps represent the primary source of clean drinking water. Traditional maintenance is reactive, causing prolonged outages. The **Emerald Boys** system transforms acoustic diagnostic recordings into deterministic, actionable, and safe maintenance workflows:
 
-The **Emerald Boys** system transforms acoustic diagnostic data into actionable, safe maintenance workflows:
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           Sequential System Workflow                        │
+└─────────────────────────────────────────────────────────────────────────────┘
 
-```text
-               Audio Recording / Sensor Input
-                             │
-                             ▼
-                 [ML Adapter (MOCK ML)]
-                             │
-                         MLPayload
-                             │
-                             ▼
-             ┌───────────────────────────────┐
-             │       Emerald Boys AI Agent   │
-             │   (Reasoning & Proposal Layer)│
-             └───────────────┬───────────────┘
-                             │
-                     Candidate Proposal
-                             │
-                             ▼
-             ┌───────────────────────────────┐
-             │ Deterministic State Machine   │
-             │     (Python Safety Kernel)    │
-             └───────────────┬───────────────┘
-                             │
-                   Validated Final State
-                             │
-              ┌──────────────┴──────────────┐
-              ▼                             ▼
-     [Local SQLite Database]       [Escalation Event Engine]
-  (Cases, Transitions, History)     (Local Log + Webhook)
+  [Technician / Field Sensor]
+               │
+               ▼
+  ┌─────────────────────────┐
+  │   Acoustic Audio (.wav) │
+  └────────────┬────────────┘
+               │
+               ▼
+  ┌─────────────────────────┐
+  │   Audio Preprocessing   │ ◄─── audio_processing.py (librosa/soundfile)
+  │ (RMS, ZCR, Centroid,    │      Validates length, sample rate, channels,
+  │  Bandwidth, MFCCs)      │      and checks for corruption or silence.
+  └────────────┬────────────┘
+               │
+               ▼
+  ┌─────────────────────────┐
+  │   ML Inference Adapter  │ ◄─── ml_adapter.py (MOCK ML prototype baseline)
+  │ (Acoustic Feature Class)│      Outputs canonical MLPayload
+  └────────────┬────────────┘
+               │
+               ▼
+  ┌─────────────────────────┐
+  │  Emerald Boys AI Agent  │ ◄─── agent.py (Safe LLM / Deterministic Prototype)
+  │ (Reasoning & Proposal)  │      Queries SQLite tools: get_pump_context,
+  └────────────┬────────────┘      get_pump_history. Proposes candidate state.
+               │
+               ▼
+  ┌─────────────────────────┐
+  │ Deterministic Validator │ ◄─── Deterministic Safety Kernel
+  │ (Python Safety Kernel)  │      Authoritative state machine rules. Overrides
+  └────────────┬────────────┘      illegal proposals to ESCALATED with audit log.
+               │
+               ▼
+  ┌─────────────────────────┐
+  │ SQLite Local Database   │ ◄─── database.py & repositories.py (data/emerald_boys.db)
+  │ (Authoritative State)   │      Persists pumps, diagnostic_cases, state_transitions.
+  └────────────┬────────────┘
+               │
+               ▼
+  ┌─────────────────────────┐
+  │  Streamlit Web Console  │ ◄─── app.py (Directly synchronizes with FastAPI / DB)
+  │ (Technician Interface)  │      Enforces repair flow: Start -> Complete -> Verify
+  └────────────┬────────────┘
+               │
+               ▼
+  ┌─────────────────────────┐
+  │ Post-Repair Verification│ ◄─── Follow-up acoustic check -> ML -> Agent -> Final State
+  └─────────────────────────┘
 ```
 
-### Core Architecture Invariant
-* **AI Agent:** Interprets diagnostics, queries historical memory via controlled tools, and **proposes** the next logical maintenance action. The LLM is **never** the final source of truth.
-* **Deterministic Backend:** Authoritatively validates every state transition. Illegal proposals are immediately rejected and overridden to `ESCALATED`.
-* **Local Database:** Fully self-contained local SQLite database persists all evaluated cases, immutable state transitions, and current pump statuses.
+### Core Architecture Invariants
+1. **The Backend & Database are Authoritative:** The Streamlit frontend is a thin, reactive interface. It never mutates state locally; all actions invoke FastAPI endpoints backed by SQLite.
+2. **The LLM Proposes, the Safety Kernel Decides:** The AI Agent is strictly a diagnostic reasoning and candidate proposal layer. It cannot bypass state machine transition rules.
+3. **Deterministic Safety Override:** If an agent or client proposes an illegal transition (e.g., `HEALTHY -> MAINTENANCE_REQUIRED` without diagnosis, or jumping directly to `HEALTHY`), the backend safety kernel intercepts the action:
+   - Preserves `proposed_state` for transparency and auditing.
+   - Sets `final_state = "ESCALATED"`.
+   - Sets `action = "ESCALATE"`, `needs_human_review = True`, and `was_overridden = True`.
+   - Appends `[OVERRIDE]` to `audit_notes`.
+4. **Preserved ML Confidence:** Upstream ML confidence scores cannot be altered, masked, or inflated by the agent or backend.
+5. **Completely Local & Self-Contained:** Runs on standard Windows/Linux/macOS machines using SQLite and an offline deterministic agent mode when no API keys are configured.
 
 ---
 
-## 2. Evolution: V1, V2, and V3
-
-* **V1 — Core Neuro-Symbolic Agent:**
-  - Pydantic V2 schemas (`MLPayload`, `LLMDecision`, `FinalAgentResponse`).
-  - OpenAI / OpenRouter function calling interface with safe tool dispatcher.
-  - Deterministic state machine transition matrix and confidence categorizer.
-  - 6/6 unit tests passing.
-* **V2 — FastAPI Service Layer:**
-  - RESTful HTTP endpoints (`GET /`, `GET /health`, `POST /evaluate`).
-  - Input validation, CORS configuration, and structured error isolation.
-  - Interactive OpenAPI/Swagger documentation (`/docs`, `/redoc`).
-  - 9/9 regression tests passing.
-* **V3 — Complete Implementation (Persistent Memory & Full Workflow):**
-  - **Step 1 (Local SQLite Foundation):** SQLAlchemy 2.x ORM models (`Pump`, `DiagnosticCase`, `StateTransition`) storing state locally in `data/emerald_boys.db`.
-  - **Step 2 (FastAPI Database Integration):** Full end-to-end persistence in `POST /evaluate` ensuring validated states and override audits are saved.
-  - **Step 3 (ML Boundary & Adapter):** `ml_adapter.py` providing `predict(audio_path)` with deterministic acoustic classification, clearly labeled as `MOCK ML`.
-  - **Step 4 (Escalation Engine):** `events.py` generating structured escalation events upon validated `ESCALATED` states, supporting optional `ESCALATION_WEBHOOK_URL` with resilient failure handling.
-  - **Step 5 (Historical Retrieval):** Controlled agent tool `get_pump_history` enabling the agent to reason over previous evaluations, past transitions, and failure patterns.
-  - Full suite of 33 tests passing with 0 regressions.
-
----
-
-## 3. Canonical State Machine
+## 2. Canonical State Machine
 
 The system models the physical handpump maintenance lifecycle through 6 canonical states:
 
-```text
+```
 HEALTHY
-  ↓
+  │
+  ▼
 DIAGNOSIS_PENDING
-  ├───────────────┬───────────────────────────────┐
-  ▼               ▼                               ▼
-HEALTHY   MAINTENANCE_REQUIRED                ESCALATED
-                  │                               ▲
-                  ▼                               │
-          REPAIR_IN_PROGRESS                      │
-                  │                               │
-                  ▼                               │
-          VERIFICATION_PENDING ───────────────────┘
-                  ├──> HEALTHY
-                  └──> MAINTENANCE_REQUIRED
+  ├───────────────────┬───────────────────┐
+  ▼                   ▼                   ▼
+HEALTHY      MAINTENANCE_REQUIRED     ESCALATED
+                      │                   ▲
+                      ▼                   │
+              REPAIR_IN_PROGRESS          │
+                      │                   │
+                      ▼                   │
+              VERIFICATION_PENDING ───────┘
+                      ├──> HEALTHY
+                      └──> MAINTENANCE_REQUIRED
 ```
 
-### Valid Transition Matrix
+### Transition Matrix
 
-| Current State | Permitted Next States |
-| :--- | :--- |
-| `HEALTHY` | `DIAGNOSIS_PENDING` |
-| `DIAGNOSIS_PENDING` | `MAINTENANCE_REQUIRED`, `ESCALATED`, `HEALTHY` |
-| `MAINTENANCE_REQUIRED` | `REPAIR_IN_PROGRESS`, `ESCALATED` |
-| `REPAIR_IN_PROGRESS` | `VERIFICATION_PENDING`, `ESCALATED` |
-| `VERIFICATION_PENDING` | `HEALTHY`, `MAINTENANCE_REQUIRED`, `ESCALATED` |
-| `ESCALATED` | `HEALTHY`, `DIAGNOSIS_PENDING` |
-
-### Deterministic Safety Override Rule
-If the agent proposes an illegal transition (e.g., attempting `HEALTHY` $\rightarrow$ `MAINTENANCE_REQUIRED` directly), the backend automatically:
-1. Rejects the proposal.
-2. Overrides the final state to `ESCALATED`.
-3. Sets `action = "ESCALATE"` and `needs_human_review = True`.
-4. Records `was_overridden = True` and appends `[OVERRIDE]` to `audit_notes`.
+| Current State (`from_state`) | Permitted Next States (`to_state`) | Action Required |
+| :--- | :--- | :--- |
+| `HEALTHY` | `DIAGNOSIS_PENDING` | Anomaly reported or routine inspection |
+| `DIAGNOSIS_PENDING` | `MAINTENANCE_REQUIRED`, `ESCALATED`, `HEALTHY` | Agent evaluation + deterministic validation |
+| `MAINTENANCE_REQUIRED` | `REPAIR_IN_PROGRESS`, `ESCALATED` | Technician dispatches and starts repair |
+| `REPAIR_IN_PROGRESS` | `VERIFICATION_PENDING`, `ESCALATED` | Technician marks mechanical work completed |
+| `VERIFICATION_PENDING` | `HEALTHY`, `MAINTENANCE_REQUIRED`, `ESCALATED` | Post-repair acoustic verification test |
+| `ESCALATED` | `HEALTHY`, `DIAGNOSIS_PENDING` | Human engineer manual review or re-inspection |
 
 ---
 
-## 4. ML Adapter (`ml_adapter.py`)
+## 3. Audio Processing Pipeline (`audio_processing.py`)
 
-The ML adapter forms a strict boundary between acoustic feature extraction and agent reasoning.
-
-> **Transparent Engineering Notice:**
-> The current adapter operates in **`MOCK ML`** mode for software prototyping and verification. It generates deterministic outputs conforming strictly to `MLPayload`. It does **not** claim to be a field-validated physical acoustic classifier.
-
-### Clean Interface:
-```python
-from ml_adapter import predict
-
-payload = predict("samples/audio/seal_leak_anomaly.wav", pump_id="PUMP-001")
-```
-
-### Deterministic Acoustic Profiles:
-* **Normal Rhythm (`normal` in filename):** `NORMAL`, confidence $0.88$ (HIGH).
-* **Seal Friction / Anomaly (`seal`, `friction`, `fault`):** `ABNORMAL`, confidence $0.92$ (HIGH).
-* **Bearing Chatter (`bearing`):** `ABNORMAL`, confidence $0.78$ (HIGH/MEDIUM).
-* **Valve Leak / Subtle Chatter (`leak`, `subtle`, `low_confidence`):** `ABNORMAL`, confidence $0.35$ (LOW).
+A canonical audio extraction pipeline handles raw audio files uploaded through the web console or REST API:
+* **Audio Loading:** Uses `soundfile` and `librosa` with automatic resampling to 22,050 Hz and mono downmixing.
+* **Format Support:** Supports standard 16-bit PCM WAV, MP3, and FLAC files.
+* **Validation & Error Handling:** Throws structured `AudioProcessingError` when:
+  - File is empty or zero bytes.
+  - File is corrupt or has invalid header markers.
+  - Duration is below minimum length threshold (< 0.2s).
+  - Signal is entirely pure silence.
+* **Feature Extraction:**
+  - Root Mean Square (RMS) energy.
+  - Zero Crossing Rate (ZCR).
+  - Spectral Centroid, Bandwidth, and Rolloff.
+  - 13 Mel-Frequency Cepstral Coefficients (MFCCs).
 
 ---
 
-## 5. Local Database Persistence (`database.py` & `repositories.py`)
+## 4. ML Adapter & Engineering Transparency (`ml_adapter.py`)
 
-All data is stored purely locally in SQLite at `data/emerald_boys.db` using SQLAlchemy 2.x. No cloud database or external server is required.
+> **Engineering Notice:**
+> The current ML layer operates in **`MOCK ML`** adapter mode (`ADAPTER_MODE = "MOCK ML"`). It analyzes extracted acoustic features and deterministic profile signatures to produce canonical `MLPayload` objects. It serves as a transparent software engineering baseline and architectural contract, not a field-trained neural network.
 
-### Database Schema
+### Acoustic Profiles:
+* **Normal Operation (`normal` in filename / low spectral centroid):** `NORMAL`, confidence $0.88$ (`HIGH`).
+* **High Bearing Friction (`bearing`, `friction` / high RMS + high centroid):** `ABNORMAL`, confidence $0.92$ (`HIGH`).
+* **Seal Leak Anomaly (`seal`, `fault`, `leak`):** `ABNORMAL`, confidence $0.85$ (`HIGH`).
+* **Chatter / Low Confidence (`low_confidence`, `chatter`):** `ABNORMAL`, confidence $0.35$ (`LOW` $\rightarrow$ triggers uncertainty escalation).
+
+---
+
+## 5. Neuro-Symbolic Agent (`agent.py`)
+
+The agent supports two operational modes seamlessly:
+1. **Live LLM Mode:** Configured with `OPENAI_API_KEY` (compatible with OpenAI or OpenRouter). Uses OpenAI Function Calling to dynamically inspect pump hardware specs and past maintenance history before proposing actions.
+2. **Deterministic Prototype Mode:** Active by default when no API key is provided, or when `AGENT_MODE=deterministic`. Operates fully offline with zero external network dependencies, ensuring 100% deterministic and reproducible test suites and local demos.
+
+### Sandboxed Database Tools (`tools.py`)
+* `get_pump_context(pump_id)`: Fetches pump specifications, age, last maintenance date, and installation location from SQLite.
+* `get_pump_history(pump_id)`: Retrieves historical diagnostic cases, past state transitions, and previous failure modes.
+
+---
+
+## 6. Local Database Schema (`database.py` & `repositories.py`)
+
+Data is persisted locally in `data/emerald_boys.db` using SQLAlchemy 2.x:
 
 1. **`pumps` Table:**
-   - `id`: Primary key
-   - `pump_id`: Unique identifier (e.g., `PUMP-001`)
+   - `pump_id` (Primary Key, e.g. `PUMP-001`)
    - `status`: Current lifecycle state
-   - `location_info`: Geospatial/sector metadata
-   - `created_at`, `updated_at`: Timestamps
+   - `location_info`, `age_years`, `last_maintenance_date`, `previous_failures`, `known_issues`
+   - `created_at`, `updated_at`
 
 2. **`diagnostic_cases` Table:**
-   - `id`: Primary key
-   - `case_id`: Unique diagnostic evaluation identifier (e.g., `CASE-101`)
-   - `pump_id`: Foreign key referencing `pumps.pump_id`
+   - `case_id` (Primary Key, e.g. `CASE-101`)
+   - `pump_id`: Reference to pump
    - `ml_prediction`, `ml_confidence`, `confidence_flag`
    - `input_state`, `proposed_state`, `final_state`, `action`
-   - `needs_human_review`, `explanation`, `audit_notes`
+   - `needs_human_review`, `was_overridden`, `explanation`, `audit_notes`
    - `created_at`, `updated_at`
 
 3. **`state_transitions` Table:**
-   - `id`: Primary key
-   - `case_id`: Associated evaluation case ID
-   - `pump_id`: Foreign key referencing `pumps.pump_id`
+   - `id`: Auto-incrementing primary key
+   - `case_id`, `pump_id`
    - `from_state`, `proposed_state`, `final_state`, `action`
-   - `reason`: Explanation string
-   - `was_overridden`: Boolean flag indicating if backend rejected agent proposal
-   - `created_at`: Timestamp
+   - `reason`, `was_overridden`, `created_at`
 
 ---
 
-## 6. Escalation System (`events.py`)
+## 7. REST API Reference (`api.py`)
 
-When the **final validated state** of an evaluation is `ESCALATED`, the system triggers an escalation event.
-
-* **Trigger Condition:** Evaluated strictly against the Python-validated final state, **not** the raw LLM proposal.
-* **Local Event Logging:** Events are formatted with unique `EVT-` IDs and logged locally.
-* **Optional Webhook (`ESCALATION_WEBHOOK_URL`):**
-  - If unset: Network calls are disabled; events are saved locally only.
-  - If configured: Sends an HTTP POST with the JSON event payload (3.0s timeout).
-  - **Fault Resilience:** Webhook network errors or timeouts are caught safely without breaking the diagnostic workflow or failing the API response.
-
----
-
-## 7. Historical Context & Agent Memory (`tools.py`)
-
-The agent accesses historical memory through the sandboxed `get_pump_history(pump_id)` tool:
-* Safe retrieval via repository queries — the LLM never executes raw SQL.
-* Returns total case counts, previous states, past anomaly occurrences, full case history, and escalation events.
-* **Memory Invariant:** History provides context to explain recurring degradation patterns; it never supersedes the deterministic state machine rules.
-
----
-
-## 8. API Reference
-
-### Endpoints
+FastAPI backend with OpenAPI documentation available at `http://127.0.0.1:8000/docs`.
 
 | Method | Endpoint | Description |
 | :--- | :--- | :--- |
 | `GET` | `/` | Root service identification and version |
-| `GET` | `/health` | Lightweight service health check |
-| `POST` | `/evaluate` | Core evaluation endpoint: agent reasoning, validation, and SQLite persistence |
-| `GET` | `/pumps/{pump_id}/history` | Historical cases, state transitions, and escalation logs for a pump |
-| `GET` | `/docs` | Interactive Swagger UI documentation |
-| `GET` | `/redoc` | Interactive ReDoc documentation |
-
-### Sample Evaluation Request:
-```bash
-curl -X POST "http://127.0.0.1:8000/evaluate" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "case_id": "CASE-101",
-    "pump_id": "PUMP-001",
-    "current_state": "DIAGNOSIS_PENDING",
-    "ml_prediction": "ABNORMAL",
-    "ml_confidence": 0.92
-  }'
-```
+| `GET` | `/health` | Service health status |
+| `GET` | `/pumps` | List all pumps and their current authoritative status |
+| `GET` | `/pumps/{pump_id}` | Retrieve real-time status and context for a specific pump |
+| `GET` | `/pumps/{pump_id}/history` | Retrieve full historical audit trail of cases and transitions |
+| `POST` | `/evaluate` | Evaluate diagnostic case via JSON `MLPayload` |
+| `POST` | `/evaluate/audio` | Upload raw audio file (`.wav`, `.mp3`) for end-to-end evaluation |
+| `POST` | `/repair/start` | Transition pump from `MAINTENANCE_REQUIRED` to `REPAIR_IN_PROGRESS` |
+| `POST` | `/repair/complete` | Transition pump from `REPAIR_IN_PROGRESS` to `VERIFICATION_PENDING` |
+| `POST` | `/verify` | Post-repair verification via JSON payload |
+| `POST` | `/verify/audio` | Post-repair verification via audio file upload |
+| `POST` | `/pumps/{pump_id}/reset-diagnosis` | Set pump to `DIAGNOSIS_PENDING` for new diagnostic evaluation |
 
 ---
 
-## 9. Environment Variables
+## 8. Streamlit Web Console (`app.py`)
 
-Create or configure `.env` (template in `.env.example`):
-
-```ini
-# OpenAI / OpenRouter LLM Configuration
-OPENAI_API_KEY=YOUR_OPENROUTER_OR_OPENAI_KEY
-OPENAI_BASE_URL=https://openrouter.ai/api/v1
-OPENAI_MODEL=openai/gpt-4o-mini
-
-# Deterministic Categorization Thresholds
-ML_HIGH_CONFIDENCE_THRESHOLD=0.70
-ML_LOW_CONFIDENCE_THRESHOLD=0.40
-
-# Optional: Remote Escalation Webhook (Leave unset to disable external calls)
-# ESCALATION_WEBHOOK_URL=https://webhook.site/your-webhook-endpoint
-
-# Optional: CORS Origins
-# CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
-```
+The Streamlit technician console connects directly to the FastAPI backend:
+* **Authoritative Dashboard:** Displays all pumps, their live hardware metadata, and current lifecycle badges.
+* **Audio Diagnostic Suite:** Select preloaded audio samples or upload custom audio files. Visualizes audio waveforms and extracted acoustic features.
+* **Interactive Technician Actions:**
+  - **Start Repair:** Enabled only when the pump is in `MAINTENANCE_REQUIRED`.
+  - **Complete Repair:** Enabled only when the pump is in `REPAIR_IN_PROGRESS`.
+  - **Run Post-Repair Verification:** Enabled only when the pump is in `VERIFICATION_PENDING`.
+* **Real-Time Audit Trail:** Inspect historical evaluations, transition timestamps, and safety override alerts.
 
 ---
 
-## 10. Installation & Running
+## 9. Getting Started on Windows (VS Code)
 
-### 1. Setup Virtual Environment
+### Prerequisites
+* Windows 10/11
+* Python 3.10+ (Tested on Python 3.13)
+* VS Code with the Python extension installed
+
+### Step 1: Set Up Virtual Environment
+Open PowerShell in the project directory:
 ```powershell
-.\venv\Scripts\Activate.ps1
+# Create virtual environment (if not already created)
+py -m venv .venv
+
+# Activate virtual environment
+.\.venv\Scripts\Activate.ps1
+
+# Install dependencies
 pip install -r requirements.txt
 ```
 
-### 2. Run the Full V3 Test Suite
-```bash
-pytest -q
+### Step 2: Configure Environment
+Copy `.env.example` to `.env`:
+```powershell
+Copy-Item .env.example .env
 ```
-*Current test suite: **33 passed** (6 unit tests, 9 API tests, 18 V3 tests).*
+*(By default, `AGENT_MODE=deterministic` runs offline without needing an API key).*
 
-### 3. Run the V3 Laptop-Only Demonstration
-```bash
-python demo_v3.py
-```
-This demonstrates:
-1. Ingesting prerecorded audio via `predict()`.
-2. Producing validated `MLPayload` labeled `MOCK ML`.
-3. Invoking the agent with dual tool access (`get_pump_context` & `get_pump_history`).
-4. Enforcing deterministic state validation.
-5. Persisting cases, transitions, and updated pump status in SQLite.
-6. Generating structured escalation events upon failure/uncertainty.
-7. Re-evaluating with historical case memory.
+### Step 3: Run with One Click in VS Code
+The repository includes `.vscode/launch.json` and `.vscode/tasks.json`:
+1. Press `F5` in VS Code and select **"FastAPI Backend"** to start the backend on `http://127.0.0.1:8000`.
+2. Press `F5` and select **"Streamlit Frontend"** to launch the technician console in your browser at `http://localhost:8501`.
+3. To run all tests, select **"Run All Tests (Pytest)"** from the debug dropdown or run task `Run All Pytest Tests` (`Ctrl+Shift+B`).
 
-### 4. Start the FastAPI Server
-```bash
-python -m uvicorn api:app --reload --port 8000
+### Manual Terminal Commands
+If running from separate PowerShell terminals:
+
+**Terminal 1 — FastAPI Backend:**
+```powershell
+.\.venv\Scripts\Activate.ps1
+uvicorn api:app --reload --port 8000
 ```
-Open [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs) to test interactively.
+
+**Terminal 2 — Streamlit Frontend:**
+```powershell
+.\.venv\Scripts\Activate.ps1
+streamlit run app.py
+```
+
+---
+
+## 10. Running Automated Tests
+
+The comprehensive test suite covers API endpoints, agent safety, database persistence, state transitions, audio processing, and the complete sequential repair lifecycle:
+
+```powershell
+# Run the entire test suite
+.\.venv\Scripts\pytest.exe -v
+
+# Run the end-to-end sequential workflow test specifically
+.\.venv\Scripts\pytest.exe -v test_sequential_workflow.py
+```
+
+**Current Test Results:** `50 passed in ~2.7s` (100% pass rate).

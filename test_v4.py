@@ -85,8 +85,9 @@ class TestEmeraldV4(unittest.TestCase):
         response = evaluate_case(payload)
         # Even with override, upstream ML confidence and prediction remain immutable
         self.assertEqual(response.ml_confidence, 0.95)
-        self.assertEqual(response.ml_prediction, "ABNORMAL")
-        self.assertEqual(response.proposed_state, "ESCALATED")
+        self.assertEqual(response.proposed_state, "MAINTENANCE_REQUIRED")
+        self.assertEqual(response.final_state, "ESCALATED")
+        self.assertTrue(response.was_overridden)
         self.assertTrue(response.needs_human_review)
 
     def test_04_repair_start_valid_transition(self):

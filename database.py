@@ -1,4 +1,5 @@
 import os
+import logging
 from datetime import datetime, timezone
 from typing import Generator
 from sqlalchemy import (
@@ -11,9 +12,10 @@ from sqlalchemy import (
     Text,
     DateTime,
     ForeignKey,
-    func
 )
 from sqlalchemy.orm import declarative_base, sessionmaker, Session
+
+logger = logging.getLogger("EmeraldDatabase")
 
 # Define paths and ensure data directory exists
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -32,13 +34,17 @@ Base = declarative_base()
 
 
 class Pump(Base):
-    """Stores handpump metadata and current lifecycle status."""
+    """Stores handpump metadata, hardware context, and authoritative lifecycle status."""
     __tablename__ = "pumps"
 
     id = Column(Integer, primary_key=True, index=True)
     pump_id = Column(String(50), unique=True, index=True, nullable=False)
     status = Column(String(50), default="DIAGNOSIS_PENDING", nullable=False)
     location_info = Column(Text, nullable=True)
+    age_years = Column(Integer, default=5, nullable=False)
+    last_maintenance_date = Column(String(50), default="2023-01-15", nullable=True)
+    previous_failures = Column(Integer, default=2, nullable=False)
+    known_issues = Column(Text, default="None", nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
     updated_at = Column(
         DateTime(timezone=True),
@@ -65,6 +71,7 @@ class DiagnosticCase(Base):
     needs_human_review = Column(Boolean, default=False, nullable=False)
     explanation = Column(Text, nullable=False)
     audit_notes = Column(Text, nullable=False)
+    was_overridden = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
     updated_at = Column(
         DateTime(timezone=True),
@@ -90,10 +97,60 @@ class StateTransition(Base):
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
 
 
+def seed_default_pumps(db: Session) -> None:
+    """Seeds baseline pump records and physical contexts if not already present."""
+    default_pumps = [
+        {
+            "pump_id": "PUMP-001",
+            "status": "DIAGNOSIS_PENDING",
+            "location_info": "Kibera Cluster 4, Well Station A",
+            "age_years": 8,
+            "last_maintenance_date": "2023-01-15",
+            "previous_failures": 3,
+            "known_issues": "Prone to severe seal degradation."
+        },
+        {
+            "pump_id": "PUMP-002",
+            "status": "DIAGNOSIS_PENDING",
+            "location_info": "Turkana Well 2, North Sub-County",
+            "age_years": 1,
+            "last_maintenance_date": "2023-09-01",
+            "previous_failures": 0,
+            "known_issues": "None"
+        },
+        {
+            "pump_id": "PUMP-003",
+            "status": "HEALTHY",
+            "location_info": "Marsabit Station 1, Central Basin",
+            "age_years": 4,
+            "last_maintenance_date": "2024-02-10",
+            "previous_failures": 1,
+            "known_issues": "Bearing vibration detected in Q1."
+        }
+    ]
+
+    for p_data in default_pumps:
+        existing = db.query(Pump).filter(Pump.pump_id == p_data["pump_id"]).first()
+        if not existing:
+            pump = Pump(**p_data)
+            db.add(pump)
+            logger.info(f"Seeded default pump: {p_data['pump_id']}")
+    try:
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to seed default pumps: {e}")
+
+
 def init_db() -> None:
-    """Creates SQLite directory and initializes tables safely if not already present."""
+    """Creates SQLite directory, initializes tables, and seeds initial data."""
     os.makedirs(DATA_DIR, exist_ok=True)
     Base.metadata.create_all(bind=engine)
+    db = SessionLocal()
+    try:
+        seed_default_pumps(db)
+    finally:
+        db.close()
 
 
 def get_db() -> Generator[Session, None, None]:

@@ -65,8 +65,7 @@ class TestEmeraldAgentV1(unittest.TestCase):
         self.assertIn("Unauthorized tool call attempted", res_unauth)
 
     def test_06_illegal_transition_override_in_agent(self):
-        """Verify illegal state transitions are rejected and overridden to ESCALATED"""
-        # Pump is HEALTHY, but payload is ABNORMAL. HEALTHY can ONLY transition to DIAGNOSIS_PENDING.
+        """Verify illegal state transitions are rejected and overridden to ESCALATED while preserving proposal"""
         payload = MLPayload(
             case_id="TEST-ILLEGAL",
             pump_id="PUMP-001",
@@ -75,12 +74,12 @@ class TestEmeraldAgentV1(unittest.TestCase):
             ml_confidence=0.92
         )
         res = evaluate_case(payload)
-        
-        # If the model tried to jump straight to MAINTENANCE_REQUIRED, backend must override to ESCALATED
-        if res.proposed_state != "DIAGNOSIS_PENDING":
-            self.assertEqual(res.proposed_state, "ESCALATED")
-            self.assertEqual(res.action, "ESCALATE")
-            self.assertTrue(res.needs_human_review)
+        self.assertEqual(res.proposed_state, "MAINTENANCE_REQUIRED")
+        self.assertEqual(res.final_state, "ESCALATED")
+        self.assertEqual(res.action, "ESCALATE")
+        self.assertTrue(res.needs_human_review)
+        self.assertTrue(res.was_overridden)
+        self.assertIn("[OVERRIDE]", res.audit_notes)
 
 if __name__ == "__main__":
     unittest.main()

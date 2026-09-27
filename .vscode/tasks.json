@@ -1,0 +1,44 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Start FastAPI Server",
+      "type": "shell",
+      "command": ".\\.venv\\Scripts\\python.exe -m uvicorn api:app --reload --port 8000",
+      "group": "build",
+      "isBackground": true,
+      "problemMatcher": {
+        "pattern": {
+          "regexp": "^$"
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": ".*Uvicorn running on.*",
+          "endsPattern": ".*Application startup complete.*"
+        }
+      }
+    },
+    {
+      "label": "Start Streamlit Frontend",
+      "type": "shell",
+      "command": ".\\.venv\\Scripts\\python.exe -m streamlit run app.py",
+      "group": "build",
+      "isBackground": true
+    },
+    {
+      "label": "Run All Pytest Tests",
+      "type": "shell",
+      "command": ".\\.venv\\Scripts\\pytest.exe -v",
+      "group": {
+        "kind": "test",
+        "isDefault": true
+      }
+    },
+    {
+      "label": "Run Sequential Workflow Test",
+      "type": "shell",
+      "command": ".\\.venv\\Scripts\\pytest.exe -v test_sequential_workflow.py",
+      "group": "test"
+    }
+  ]
+}

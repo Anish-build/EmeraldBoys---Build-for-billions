@@ -112,11 +112,12 @@ class TestEmeraldAgentAPI(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertEqual(data["case_id"], "CASE-105")
-        if data["proposed_state"] != "DIAGNOSIS_PENDING":
-            self.assertEqual(data["proposed_state"], "ESCALATED")
-            self.assertEqual(data["action"], "ESCALATE")
-            self.assertTrue(data["needs_human_review"])
-            self.assertIn("[OVERRIDE]", data["audit_notes"])
+        self.assertEqual(data["proposed_state"], "MAINTENANCE_REQUIRED")
+        self.assertEqual(data["final_state"], "ESCALATED")
+        self.assertEqual(data["action"], "ESCALATE")
+        self.assertTrue(data["needs_human_review"])
+        self.assertTrue(data["was_overridden"])
+        self.assertIn("[OVERRIDE]", data["audit_notes"])
 
 if __name__ == "__main__":
     unittest.main()

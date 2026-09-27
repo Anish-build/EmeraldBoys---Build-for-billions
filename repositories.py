@@ -10,7 +10,11 @@ def get_or_create_pump(
     db: Session,
     pump_id: str,
     status: str = "DIAGNOSIS_PENDING",
-    location_info: Optional[str] = None
+    location_info: Optional[str] = None,
+    age_years: int = 5,
+    last_maintenance_date: Optional[str] = None,
+    previous_failures: int = 0,
+    known_issues: Optional[str] = None
 ) -> Pump:
     """Retrieves an existing pump or creates a new entry if not found."""
     pump = db.query(Pump).filter(Pump.pump_id == pump_id).first()
@@ -18,7 +22,11 @@ def get_or_create_pump(
         pump = Pump(
             pump_id=pump_id,
             status=status,
-            location_info=location_info
+            location_info=location_info or f"Standard Cluster {pump_id}",
+            age_years=age_years,
+            last_maintenance_date=last_maintenance_date or "2023-01-01",
+            previous_failures=previous_failures,
+            known_issues=known_issues or "None"
         )
         db.add(pump)
         db.commit()
@@ -27,8 +35,18 @@ def get_or_create_pump(
     return pump
 
 
+def get_all_pumps(db: Session) -> List[Pump]:
+    """Retrieves all registered pumps from SQLite."""
+    return db.query(Pump).order_by(Pump.pump_id.asc()).all()
+
+
+def get_pump_by_id(db: Session, pump_id: str) -> Optional[Pump]:
+    """Finds a pump record by pump_id."""
+    return db.query(Pump).filter(Pump.pump_id == pump_id).first()
+
+
 def update_pump_status(db: Session, pump_id: str, new_status: str) -> Optional[Pump]:
-    """Updates the current status of an existing pump."""
+    """Updates the current status of an existing pump in the database."""
     pump = db.query(Pump).filter(Pump.pump_id == pump_id).first()
     if pump:
         pump.status = new_status
@@ -36,11 +54,6 @@ def update_pump_status(db: Session, pump_id: str, new_status: str) -> Optional[P
         db.refresh(pump)
         logger.info(f"Updated pump {pump_id} status to {new_status}")
     return pump
-
-
-def get_pump_by_id(db: Session, pump_id: str) -> Optional[Pump]:
-    """Finds a pump record by pump_id."""
-    return db.query(Pump).filter(Pump.pump_id == pump_id).first()
 
 
 def save_diagnostic_case(
@@ -56,7 +69,8 @@ def save_diagnostic_case(
     action: str,
     needs_human_review: bool,
     explanation: str,
-    audit_notes: str
+    audit_notes: str,
+    was_overridden: bool = False
 ) -> DiagnosticCase:
     """Persists a new diagnostic case evaluation record."""
     diag_case = DiagnosticCase(
@@ -71,7 +85,8 @@ def save_diagnostic_case(
         action=action,
         needs_human_review=needs_human_review,
         explanation=explanation,
-        audit_notes=audit_notes
+        audit_notes=audit_notes,
+        was_overridden=was_overridden
     )
     db.add(diag_case)
     db.commit()

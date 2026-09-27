@@ -1,18 +1,28 @@
 import os
+import uuid
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, List, Optional
+from datetime import datetime, timezone
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Depends, status
+
+from fastapi import FastAPI, Depends, UploadFile, File, Form, status, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
-import uuid
-from datetime import datetime, timezone
-from schemas import MLPayload, FinalAgentResponse, RepairRequest, RepairResponse
-from agent import evaluate_case
-from database import init_db, get_db
+from schemas import (
+    MLPayload,
+    FinalAgentResponse,
+    RepairRequest,
+    RepairResponse,
+    PumpResponse,
+    DiagnosticReport
+)
+from agent import evaluate_case, validate_transition
+from database import init_db, get_db, SessionLocal
 import repositories
+import ml_adapter
+from audio_processing import AudioProcessingError
 
 # Configure logging
 logger = logging.getLogger("EmeraldAgentAPI")
@@ -23,28 +33,28 @@ async def lifespan(app: FastAPI):
     init_db()
     yield
 
-# Also initialize immediately on module load for safety
+# Also initialize immediately on module load
 init_db()
 
 app = FastAPI(
-    title="Emerald Boys AI Agent API",
-    version="3.0",
-    description="Evaluate a handpump ML diagnostic result using the Emerald Boys AI Agent with persistent case memory.",
+    title="Emerald Boys AI Agent & Maintenance API",
+    version="4.0",
+    description="Authoritative FastAPI service for rural handpump acoustic anomaly evaluation, deterministic state enforcement, and lifecycle memory.",
     lifespan=lifespan
 )
 
-# Optional Configurable CORS (disabled if CORS_ORIGINS is not set)
-cors_origins_env = os.getenv("CORS_ORIGINS")
-if cors_origins_env and cors_origins_env.strip():
-    origins = [origin.strip() for origin in cors_origins_env.split(",") if origin.strip()]
-    if origins:
-        app.add_middleware(
-            CORSMiddleware,
-            allow_origins=origins,
-            allow_credentials=True,
-            allow_methods=["GET", "POST"],
-            allow_headers=["*"],
-        )
+# Configurable CORS with safe defaults for local development
+cors_origins_env = os.getenv("CORS_ORIGINS", "http://localhost:8501,http://127.0.0.1:8501")
+origins = [origin.strip() for origin in cors_origins_env.split(",") if origin.strip()]
+if origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=origins,
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "OPTIONS"],
+        allow_headers=["*"],
+    )
+
 
 @app.get(
     "/",
@@ -58,6 +68,7 @@ def read_root() -> Dict[str, str]:
         "status": "running"
     }
 
+
 @app.get(
     "/health",
     summary="Health Check",
@@ -70,6 +81,57 @@ def health_check() -> Dict[str, str]:
         "version": "2.0"
     }
 
+
+@app.get(
+    "/pumps",
+    response_model=List[PumpResponse],
+    summary="List All Pumps",
+    description="Retrieves all registered pumps with their authoritative lifecycle status."
+)
+def list_pumps(db: Session = Depends(get_db)):
+    pumps = repositories.get_all_pumps(db)
+    return [
+        PumpResponse(
+            pump_id=p.pump_id,
+            status=p.status,
+            location_info=p.location_info,
+            age_years=p.age_years,
+            last_maintenance_date=p.last_maintenance_date,
+            previous_failures=p.previous_failures,
+            known_issues=p.known_issues,
+            created_at=p.created_at.isoformat() if p.created_at else None,
+            updated_at=p.updated_at.isoformat() if p.updated_at else None
+        )
+        for p in pumps
+    ]
+
+
+@app.get(
+    "/pumps/{pump_id}",
+    response_model=PumpResponse,
+    summary="Get Pump Current State",
+    description="Dedicated endpoint retrieving authoritative current state and hardware specs for a pump from SQLite."
+)
+def get_pump_state(pump_id: str, db: Session = Depends(get_db)):
+    pump = repositories.get_pump_by_id(db, pump_id)
+    if not pump:
+        return JSONResponse(
+            status_code=status.HTTP_404_NOT_FOUND,
+            content={"error": "Pump not found", "pump_id": pump_id}
+        )
+    return PumpResponse(
+        pump_id=pump.pump_id,
+        status=pump.status,
+        location_info=pump.location_info,
+        age_years=pump.age_years,
+        last_maintenance_date=pump.last_maintenance_date,
+        previous_failures=pump.previous_failures,
+        known_issues=pump.known_issues,
+        created_at=pump.created_at.isoformat() if pump.created_at else None,
+        updated_at=pump.updated_at.isoformat() if pump.updated_at else None
+    )
+
+
 @app.post(
     "/evaluate",
     response_model=FinalAgentResponse,
@@ -80,20 +142,27 @@ def evaluate_endpoint(payload: MLPayload, db: Session = Depends(get_db)):
     logger.info(f"Received evaluation request: {payload.case_id} for pump: {payload.pump_id}")
     
     try:
-        # 1. Ensure pump record exists in database
-        repositories.get_or_create_pump(
-            db=db,
-            pump_id=payload.pump_id,
-            status=payload.current_state
-        )
-
-        # 2. Execute neuro-symbolic agent evaluation
+        # 1. Execute neuro-symbolic agent evaluation
         logger.info(f"Invoking evaluate_case for {payload.case_id}")
         response: FinalAgentResponse = evaluate_case(payload)
         logger.info(f"Agent evaluation completed for {payload.case_id}")
 
+        # 2. Ensure pump record exists in database
+        existing_pump = repositories.get_pump_by_id(db, payload.pump_id)
+        if existing_pump:
+            repositories.update_pump_status(db=db, pump_id=payload.pump_id, new_status=response.final_state)
+        else:
+            repositories.get_or_create_pump(
+                db=db,
+                pump_id=payload.pump_id,
+                status=response.final_state,
+                location_info="Unregistered Pump",
+                age_years=0,
+                known_issues="Unregistered"
+            )
+
         # 3. Detect whether an illegal transition was overridden
-        was_overridden = "[OVERRIDE]" in (response.audit_notes or "")
+        was_overridden = response.was_overridden or ("[OVERRIDE]" in (response.audit_notes or ""))
 
         # 4. Persist diagnostic case
         repositories.save_diagnostic_case(
@@ -105,11 +174,12 @@ def evaluate_endpoint(payload: MLPayload, db: Session = Depends(get_db)):
             confidence_flag=response.confidence_flag,
             input_state=payload.current_state,
             proposed_state=response.proposed_state,
-            final_state=response.proposed_state,
+            final_state=response.final_state,
             action=response.action,
             needs_human_review=response.needs_human_review,
             explanation=response.explanation,
-            audit_notes=response.audit_notes
+            audit_notes=response.audit_notes,
+            was_overridden=was_overridden
         )
 
         # 5. Persist state transition history
@@ -119,27 +189,27 @@ def evaluate_endpoint(payload: MLPayload, db: Session = Depends(get_db)):
             pump_id=payload.pump_id,
             from_state=payload.current_state,
             proposed_state=response.proposed_state,
-            final_state=response.proposed_state,
+            final_state=response.final_state,
             action=response.action,
             reason=response.explanation,
             was_overridden=was_overridden
         )
 
-        # 6. Update pump status
+        # 6. Update authoritative pump status to final validated state
         repositories.update_pump_status(
             db=db,
             pump_id=payload.pump_id,
-            new_status=response.proposed_state
+            new_status=response.final_state
         )
 
         # 7. Generate escalation event if final validated state is ESCALATED
-        if response.proposed_state == "ESCALATED":
+        if response.final_state == "ESCALATED":
             from events import record_escalation_event
             record_escalation_event(
                 pump_id=payload.pump_id,
                 case_id=payload.case_id,
                 reason=response.explanation or "Case resulted in ESCALATED state.",
-                final_state=response.proposed_state
+                final_state="ESCALATED"
             )
 
         logger.info(f"Successfully persisted case {payload.case_id} and transition for pump {payload.pump_id}")
@@ -161,10 +231,62 @@ def evaluate_endpoint(payload: MLPayload, db: Session = Depends(get_db)):
         )
 
 
+@app.post(
+    "/evaluate/audio",
+    response_model=FinalAgentResponse,
+    summary="Audio Ingestion & Diagnostic Pipeline",
+    description="Ingest an actual audio file, extract acoustic features, run ML prediction, and execute agent reasoning."
+)
+async def evaluate_audio_endpoint(
+    file: UploadFile = File(...),
+    pump_id: str = Form("PUMP-001"),
+    case_id: Optional[str] = Form(None),
+    db: Session = Depends(get_db)
+):
+    logger.info(f"Received audio upload for pump {pump_id}: {file.filename}")
+    
+    # 1. Fetch pump authoritative state from DB
+    pump = repositories.get_or_create_pump(db, pump_id=pump_id)
+    current_state = pump.status
+
+    # 2. Read audio bytes safely
+    try:
+        content = await file.read()
+        if not content:
+            return JSONResponse(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                content={"error": "Uploaded audio file is empty."}
+            )
+    except Exception as e:
+        return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content={"error": f"Failed to read uploaded file: {str(e)}"}
+        )
+
+    # 3. Execute audio processing & feature extraction via ML Adapter
+    try:
+        ml_payload = ml_adapter.predict_bytes(
+            audio_bytes=content,
+            filename=file.filename or "recording.wav",
+            pump_id=pump_id,
+            current_state=current_state,
+            case_id=case_id
+        )
+    except AudioProcessingError as e:
+        logger.error(f"Audio processing failed for {file.filename}: {e}")
+        return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content={"error": "Audio processing failure", "detail": str(e)}
+        )
+
+    # 4. Delegate to the evaluate endpoint logic
+    return evaluate_endpoint(payload=ml_payload, db=db)
+
+
 @app.get(
     "/pumps/{pump_id}/history",
     summary="Get Pump Historical Cases and Transitions",
-    description="Retrieve historical diagnostic cases and state transitions for a specific pump."
+    description="Retrieve historical diagnostic cases, state transitions, and escalation logs for a specific pump."
 )
 def get_pump_history_endpoint(pump_id: str, db: Session = Depends(get_db)):
     pump = repositories.get_pump_by_id(db, pump_id)
@@ -182,6 +304,10 @@ def get_pump_history_endpoint(pump_id: str, db: Session = Depends(get_db)):
         "pump_id": pump.pump_id,
         "current_status": pump.status,
         "location_info": pump.location_info,
+        "age_years": pump.age_years,
+        "last_maintenance_date": pump.last_maintenance_date,
+        "previous_failures": pump.previous_failures,
+        "known_issues": pump.known_issues,
         "cases_count": len(cases),
         "cases": [
             {
@@ -189,8 +315,12 @@ def get_pump_history_endpoint(pump_id: str, db: Session = Depends(get_db)):
                 "ml_prediction": c.ml_prediction,
                 "ml_confidence": c.ml_confidence,
                 "confidence_flag": c.confidence_flag,
+                "proposed_state": c.proposed_state,
                 "final_state": c.final_state,
                 "action": c.action,
+                "was_overridden": c.was_overridden,
+                "explanation": c.explanation,
+                "audit_notes": c.audit_notes,
                 "created_at": c.created_at.isoformat() if c.created_at else None
             }
             for c in cases
@@ -203,6 +333,7 @@ def get_pump_history_endpoint(pump_id: str, db: Session = Depends(get_db)):
                 "final_state": t.final_state,
                 "action": t.action,
                 "was_overridden": t.was_overridden,
+                "reason": t.reason,
                 "created_at": t.created_at.isoformat() if t.created_at else None
             }
             for t in transitions
@@ -364,7 +495,7 @@ def verify_endpoint(payload: MLPayload, db: Session = Depends(get_db)):
             action = "PROPOSE_TRANSITION"
             needs_human_review = False
             verification_note = "Post-repair acoustic verification confirmed NORMAL pump operation. Transitioned to HEALTHY."
-        else: # ABNORMAL
+        else:  # ABNORMAL
             final_state = "MAINTENANCE_REQUIRED"
             action = "PROPOSE_TRANSITION"
             needs_human_review = True
@@ -383,12 +514,13 @@ def verify_endpoint(payload: MLPayload, db: Session = Depends(get_db)):
             ml_confidence=payload.ml_confidence,
             confidence_flag=agent_response.confidence_flag,
             input_state="VERIFICATION_PENDING",
-            proposed_state=final_state,
+            proposed_state=agent_response.proposed_state,
             final_state=final_state,
             action=action,
             needs_human_review=needs_human_review,
             explanation=explanation,
-            audit_notes=audit_notes
+            audit_notes=audit_notes,
+            was_overridden=was_overridden
         )
 
         # 6. Persist StateTransition
@@ -397,7 +529,7 @@ def verify_endpoint(payload: MLPayload, db: Session = Depends(get_db)):
             case_id=payload.case_id,
             pump_id=payload.pump_id,
             from_state="VERIFICATION_PENDING",
-            proposed_state=final_state,
+            proposed_state=agent_response.proposed_state,
             final_state=final_state,
             action=action,
             reason=verification_note,
@@ -432,14 +564,16 @@ def verify_endpoint(payload: MLPayload, db: Session = Depends(get_db)):
             pump_id=payload.pump_id,
             action=action,
             current_state="VERIFICATION_PENDING",
-            proposed_state=final_state,
+            proposed_state=agent_response.proposed_state,
+            final_state=final_state,
             ml_prediction=payload.ml_prediction,
             ml_confidence=payload.ml_confidence,
             confidence_flag=agent_response.confidence_flag,
             needs_human_review=needs_human_review,
             explanation=explanation,
             audit_notes=audit_notes,
-            diagnostic_report=report
+            diagnostic_report=report,
+            was_overridden=was_overridden
         )
 
     except Exception as e:
@@ -456,3 +590,128 @@ def verify_endpoint(payload: MLPayload, db: Session = Depends(get_db)):
                 "case_id": payload.case_id
             }
         )
+
+
+@app.post(
+    "/verify/audio",
+    response_model=FinalAgentResponse,
+    summary="Post-Repair Verification Audio Ingestion",
+    description="Ingest verification audio file, process through ML pipeline, and complete post-repair verification."
+)
+async def verify_audio_endpoint(
+    file: UploadFile = File(...),
+    pump_id: str = Form(...),
+    case_id: Optional[str] = Form(None),
+    db: Session = Depends(get_db)
+):
+    pump = repositories.get_pump_by_id(db, pump_id)
+    if not pump:
+        return JSONResponse(
+            status_code=status.HTTP_404_NOT_FOUND,
+            content={"error": "Pump not found", "pump_id": pump_id}
+        )
+    if pump.status != "VERIFICATION_PENDING":
+        return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content={
+                "error": "Illegal verification state",
+                "detail": f"Pump '{pump.pump_id}' is in status '{pump.status}'. Verification requires 'VERIFICATION_PENDING'.",
+                "pump_id": pump.pump_id,
+                "current_state": pump.status
+            }
+        )
+
+    try:
+        content = await file.read()
+        if not content:
+            return JSONResponse(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                content={"error": "Uploaded verification audio file is empty."}
+            )
+    except Exception as e:
+        return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content={"error": f"Failed to read audio file: {str(e)}"}
+        )
+
+    try:
+        payload = ml_adapter.predict_bytes(
+            audio_bytes=content,
+            filename=file.filename or "verification.wav",
+            pump_id=pump_id,
+            current_state="VERIFICATION_PENDING",
+            case_id=case_id
+        )
+    except AudioProcessingError as e:
+        return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content={"error": "Audio processing failure", "detail": str(e)}
+        )
+
+    return verify_endpoint(payload=payload, db=db)
+
+
+@app.post(
+    "/pumps/{pump_id}/reset-diagnosis",
+    response_model=PumpResponse,
+    summary="Reset Pump to DIAGNOSIS_PENDING",
+    description="Transitions a pump in HEALTHY or ESCALATED state back to DIAGNOSIS_PENDING for a new evaluation cycle."
+)
+def reset_pump_diagnosis(pump_id: str, db: Session = Depends(get_db)):
+    pump = repositories.get_pump_by_id(db, pump_id)
+    if not pump:
+        return JSONResponse(
+            status_code=status.HTTP_404_NOT_FOUND,
+            content={"error": "Pump not found", "pump_id": pump_id}
+        )
+
+    if pump.status == "DIAGNOSIS_PENDING":
+        return PumpResponse(
+            pump_id=pump.pump_id,
+            status=pump.status,
+            location_info=pump.location_info,
+            age_years=pump.age_years,
+            last_maintenance_date=pump.last_maintenance_date,
+            previous_failures=pump.previous_failures,
+            known_issues=pump.known_issues,
+            created_at=pump.created_at.isoformat() if pump.created_at else None,
+            updated_at=pump.updated_at.isoformat() if pump.updated_at else None
+        )
+
+    if not validate_transition(pump.status, "DIAGNOSIS_PENDING"):
+        return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content={
+                "error": "Illegal transition",
+                "detail": f"Cannot transition pump from '{pump.status}' to 'DIAGNOSIS_PENDING'.",
+                "pump_id": pump.pump_id,
+                "current_state": pump.status
+            }
+        )
+
+    case_id = f"RESET-{uuid.uuid4().hex[:8]}"
+    prev_state = pump.status
+    repositories.record_state_transition(
+        db=db,
+        case_id=case_id,
+        pump_id=pump.pump_id,
+        from_state=prev_state,
+        proposed_state="DIAGNOSIS_PENDING",
+        final_state="DIAGNOSIS_PENDING",
+        action="RESET_DIAGNOSIS",
+        reason="Manual or automated initiation of new diagnostic cycle.",
+        was_overridden=False
+    )
+    repositories.update_pump_status(db, pump.pump_id, "DIAGNOSIS_PENDING")
+
+    return PumpResponse(
+        pump_id=pump.pump_id,
+        status="DIAGNOSIS_PENDING",
+        location_info=pump.location_info,
+        age_years=pump.age_years,
+        last_maintenance_date=pump.last_maintenance_date,
+        previous_failures=pump.previous_failures,
+        known_issues=pump.known_issues,
+        created_at=pump.created_at.isoformat() if pump.created_at else None,
+        updated_at=pump.updated_at.isoformat() if pump.updated_at else None
+    )
